@@ -9,8 +9,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!validateAdminSecret(request.headers.get('authorization'))) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
-  const codes = await getAllCodes();
-  return NextResponse.json({ success: true, codes });
+  try {
+    const codes = await getAllCodes();
+    return NextResponse.json({ success: true, codes });
+  } catch (error) {
+    console.error('Error fetching codes:', error);
+    return NextResponse.json({ success: false, error: 'Database error — check POSTGRES_URL' }, { status: 500 });
+  }
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -38,8 +43,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const codeHash = await bcrypt.hash(code.trim(), BCRYPT_ROUNDS);
     const id = await insertCode(codeHash, testerName.trim(), emailStr, notesStr);
     return NextResponse.json({ success: true, id }, { status: 201 });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error inserting code:', error);
-    return NextResponse.json({ success: false, error: 'Failed to create code — it may already exist' }, { status: 409 });
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes('unique') || msg.includes('duplicate')) {
+      return NextResponse.json({ success: false, error: 'A code with that value already exists' }, { status: 409 });
+    }
+    return NextResponse.json({ success: false, error: 'Database error — check POSTGRES_URL' }, { status: 500 });
   }
 }

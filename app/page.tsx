@@ -24,9 +24,8 @@ export default function HomePage() {
       });
       const data = await res.json();
       if (data.success) {
-        localStorage.setItem('sessionToken', data.sessionToken);
-        localStorage.setItem('testerName', data.name);
-        router.push(`/welcome?name=${encodeURIComponent(data.name)}`);
+        // Cookie is set by the server; just redirect to the app
+        router.push(data.redirect ?? '/inbox');
       } else {
         setError(data.error || 'Invalid access code');
         setShaking(true);
@@ -96,7 +95,7 @@ export default function HomePage() {
         )}
 
         <p className="home-footer">
-          Questions? <a href="mailto:team@dirac.app">Contact the Dirac team</a>
+          Questions? <a href="https://discord.gg/9AMpVkk5yv" target="_blank" rel="noopener noreferrer">Join our Discord</a>
         </p>
       </div>
     </main>

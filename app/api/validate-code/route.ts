@@ -46,5 +46,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   recordSuccess(ip);
   const sessionToken = issueSessionToken(matchedCode.id, matchedCode.tester_name);
-  return NextResponse.json({ success: true, name: matchedCode.tester_name, sessionToken });
+
+  // Set session as httpOnly cookie (readable by middleware, not JS)
+  const response = NextResponse.json({ success: true, name: matchedCode.tester_name, redirect: '/inbox' });
+  response.cookies.set('dirac_session', sessionToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 60 * 60 * 24, // 24 hours
+  });
+  return response;
 }

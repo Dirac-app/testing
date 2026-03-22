@@ -1,0 +1,210 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ──────────────────────────────────────
+// Auth / User
+// ──────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts      Account[]
+  diracMetadata DiracMetadata[]
+  settings      UserSettings?
+}
+
+// ──────────────────────────────────────
+// Platform accounts (Gmail, Discord, IG…)
+// ──────────────────────────────────────
+
+enum Platform {
+  GMAIL
+  OUTLOOK
+  DISCORD
+  INSTAGRAM
+  SLACK
+}
+
+model Account {
+  id                String   @id @default(cuid())
+  userId            String
+  platform          Platform
+  platformAccountId String // e.g. Gmail address, Discord user id
+  displayName       String?
+
+  // OAuth tokens (refresh token encrypted at rest)
+  accessToken          String?
+  refreshToken         String? // encrypted
+  accessTokenExpiresAt DateTime?
+
+  // Gmail-specific sync cursor
+  syncHistoryId String?
+  lastSyncedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threads  Thread[]
+  messages Message[]
+
+  @@unique([userId, platform, platformAccountId])
+}
+
+// ──────────────────────────────────────
+// Threads / Conversations (cross-platform)
+// ──────────────────────────────────────
+
+model Thread {
+  id        String   @id @default(cuid())
+  accountId String
+  platform  Platform
+
+  // Platform-specific ids for API calls
+  platformThreadId String
+
+  subject       String?
+  snippet       String? // short preview text
+  isUnread      Boolean  @default(true)
+  messageCount  Int      @default(0)
+  lastMessageAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  account       Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  messages      Message[]
+  participants  Participant[]
+  diracMetadata DiracMetadata?
+
+  @@unique([accountId, platformThreadId])
+  @@index([accountId, lastMessageAt(sort: Desc)])
+}
+
+// ──────────────────────────────────────
+// Messages
+// ──────────────────────────────────────
+
+model Message {
+  id        String   @id @default(cuid())
+  threadId  String
+  accountId String
+  platform  Platform
+
+  platformMessageId String
+
+  fromAddress String
+  fromName    String?
+  toAddresses String[] // array of recipient addresses
+  ccAddresses String[]
+  bccAddresses String[]
+
+  subject   String?
+  bodyText  String? // plain text
+  bodyHtml  String? // HTML (email)
+  snippet   String?
+
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  thread  Thread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, platformMessageId])
+  @@index([threadId, sentAt(sort: Asc)])
+}
+
+// ──────────────────────────────────────
+// Contacts / Participants
+// ──────────────────────────────────────
+
+model Contact {
+  id        String   @id @default(cuid())
+  email     String?
+  name      String?
+  avatarUrl String?
+  platform  Platform?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participants Participant[]
+
+  @@unique([email, platform])
+}
+
+model Participant {
+  id        String @id @default(cuid())
+  threadId  String
+  contactId String
+  role      String @default("participant") // sender | recipient | cc | bcc | participant
+
+  thread  Thread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, contactId, role])
+}
+
+// ──────────────────────────────────────
+// Per-user settings (model preference, etc.)
+// ──────────────────────────────────────
+
+model UserSettings {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  // AI model preference — must be a slug from the ALLOWED_MODELS set in user-db.ts
+  aiModel String @default("anthropic/claude-haiku-4-4")
+
+  // About-me context string for AI personalisation
+  aboutMe String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+
+enum ThreadStatus {
+  INBOX
+  DONE
+  SNOOZED
+  ARCHIVED
+}
+
+model DiracMetadata {
+  id       String @id @default(cuid())
+  threadId String @unique
+  userId   String
+
+  status       ThreadStatus @default(INBOX)
+  tags         String[]     // user-defined tags
+  urgencyScore Int?         // 0–100, AI-generated
+  snoozedUntil DateTime?
+  isPinned     Boolean      @default(false)
+  assignedTo   String?      // free-text or user id
+
+  // AI-generated artifacts
+  aiSummary     String?
+  aiActionItems String[] // extracted tasks
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+}

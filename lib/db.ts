@@ -1,4 +1,18 @@
-import { sql } from '@vercel/postgres';
+import postgres from 'postgres';
+
+// ---------------------------------------------------------------------------
+// Connection
+// ---------------------------------------------------------------------------
+let _sql: ReturnType<typeof postgres> | null = null;
+
+function getDb() {
+  if (!_sql) {
+    const url = process.env.POSTGRES_URL;
+    if (!url) throw new Error('POSTGRES_URL environment variable is not set');
+    _sql = postgres(url, { ssl: 'require', max: 5 });
+  }
+  return _sql;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,6 +47,7 @@ let _initialized = false;
 
 export async function initDb(): Promise<void> {
   if (_initialized) return;
+  const sql = getDb();
   await sql`
     CREATE TABLE IF NOT EXISTS invite_codes (
       id            SERIAL PRIMARY KEY,
@@ -55,7 +70,8 @@ export async function initDb(): Promise<void> {
 
 export async function getAllCodes(): Promise<InviteCodePublic[]> {
   await initDb();
-  const { rows } = await sql<InviteCode>`
+  const sql = getDb();
+  const rows = await sql<InviteCode[]>`
     SELECT id, tester_name, used, used_at, github_username, email, notes, created_at
     FROM invite_codes
     ORDER BY created_at DESC
@@ -74,7 +90,8 @@ export async function getAllCodes(): Promise<InviteCodePublic[]> {
 
 export async function getUnusedCodesWithHashes(): Promise<InviteCode[]> {
   await initDb();
-  const { rows } = await sql<InviteCode>`
+  const sql = getDb();
+  const rows = await sql<InviteCode[]>`
     SELECT id, code_hash, tester_name FROM invite_codes WHERE used = FALSE
   `;
   return rows;
@@ -87,7 +104,8 @@ export async function insertCode(
   notes?: string,
 ): Promise<number> {
   await initDb();
-  const { rows } = await sql<{ id: number }>`
+  const sql = getDb();
+  const rows = await sql<{ id: number }[]>`
     INSERT INTO invite_codes (code_hash, tester_name, email, notes)
     VALUES (${codeHash}, ${testerName}, ${email ?? null}, ${notes ?? null})
     RETURNING id
@@ -97,6 +115,7 @@ export async function insertCode(
 
 export async function markCodeUsed(id: number, githubUsername: string): Promise<void> {
   await initDb();
+  const sql = getDb();
   await sql`
     UPDATE invite_codes
     SET used = TRUE, used_at = NOW(), github_username = ${githubUsername}
@@ -106,12 +125,14 @@ export async function markCodeUsed(id: number, githubUsername: string): Promise<
 
 export async function deleteCode(id: number): Promise<void> {
   await initDb();
+  const sql = getDb();
   await sql`DELETE FROM invite_codes WHERE id = ${id}`;
 }
 
 export async function getCodeById(id: number): Promise<InviteCode | null> {
   await initDb();
-  const { rows } = await sql<InviteCode>`
+  const sql = getDb();
+  const rows = await sql<InviteCode[]>`
     SELECT * FROM invite_codes WHERE id = ${id}
   `;
   return rows[0] ?? null;
